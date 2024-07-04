@@ -1,24 +1,3 @@
-# MIT License
-
-# Copyright (c) 2020 Anshuman Pattnaik
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
 import argparse
 import json
 import time
@@ -44,11 +23,11 @@ parser.add_argument("-urls", "--urls", help="set list of target urls, i.e (urls.
 parser.add_argument("-t", "--timeout", help="set socket timeout, default - 10")
 parser.add_argument("-m", "--method", help="set HTTP Methods, i.e (GET or POST), default - POST")
 parser.add_argument("-r", "--retry", help="set the retry count to re-execute the payload, default - 2")
+parser.add_argument("-p", "--proxy", help="set proxy server, i.e (http://proxy:port)")
 args = parser.parse_args()
 
-
 def hrs_detection(_host, _port, _path, _method, permute_type, content_length_key, te_key, te_value, smuggle_type,
-                  content_length, payload, _timeout):
+                  content_length, payload, _timeout, proxy=None):
     headers = ''
     headers += '{} {} HTTP/1.1{}'.format(_method, _path, constants.crlf)
     headers += 'Host: {}{}'.format(_host, constants.crlf)
@@ -74,7 +53,7 @@ def hrs_detection(_host, _port, _path, _method, permute_type, content_length_key
 
     try:
         connection = SocketConnection()
-        connection.connect(_host, _port, _timeout)
+        connection.connect(_host, _port, _timeout, proxy)
         connection.send_payload(smuggle_body)
 
         response = connection.receive_data().decode("utf-8")
@@ -88,17 +67,11 @@ def hrs_detection(_host, _port, _path, _method, permute_type, content_length_key
 
         connection.close_connection()
 
-        # The detection logic is based on the time delay technique, if the elapsed time is more than the timeout value
-        # then the target host status will change to [HRS → Vulnerable], but most of the time chances are it can be
-        # false positive So to confirm the vulnerability you can use burp-suite turbo intruder and try your own
-        # payloads. https://portswigger.net/web-security/request-smuggling/finding
-
         elapsed_time = str(round((end_time - start_time) % 60, 2)) + "s"
         _style_elapsed_time = "{}".format(colored(elapsed_time, constants.yellow, attrs=['bold']))
 
         is_hrs_found = connection.detect_hrs_vulnerability(start_time, _timeout)
 
-        # If HRS found then it will write the payload to the reports directory
         if is_hrs_found:
             _style_status = colored(constants.delayed_response_msg, constants.red, attrs=['bold'])
             _reports = constants.reports + '/{}/{}-{}{}'.format(_host, permute_type, smuggle_type, constants.extenstion)
@@ -115,21 +88,16 @@ def hrs_detection(_host, _port, _path, _method, permute_type, content_length_key
     print(_style_space_config.format(_style_permute_type, _style_smuggle_type, _style_status_code, _style_elapsed_time,
                                      _style_status))
 
-    # There is a delay of 1 second after executing each payload
     time.sleep(1)
 
-
 if __name__ == "__main__":
-    # If the python version less than 3.x then it will exit
     if sys.version_info < (3, 0):
         print(constants.python_version_error_msg)
         sys.exit(1)
 
     try:
-        # Printing the tool header
         utils.print_header()
 
-        # Both (url/urls) options not allowed at the same time
         if args.urls and args.url:
             print(constants.invalid_url_options)
             sys.exit(1)
@@ -154,7 +122,6 @@ if __name__ == "__main__":
                 port = json_res['port']
                 path = json_res['path']
 
-                # If host is invalid then it will exit
                 if host is None:
                     print(f"Invalid host - {host}")
                     sys.exit(1)
@@ -168,7 +135,6 @@ if __name__ == "__main__":
                 timeout = int(args.timeout) if args.timeout else 10
                 retry = int(args.retry) if args.retry else 2
 
-                # To detect the HRS it requires at least 1 retry count
                 if retry == 0:
                     print(constants.invalid_retry_count)
                     sys.exit(1)
@@ -210,7 +176,6 @@ if __name__ == "__main__":
 
                 for permute in data[constants.permute]:
                     for d in data[constants.detection]:
-                        # Based on the retry value it will re-execute the same payload again
                         for _ in range(retry):
                             transfer_encoding_obj = permute[constants.transfer_encoding]
                             hrs_detection(host, port, path, method, permute[constants.type],
@@ -220,7 +185,8 @@ if __name__ == "__main__":
                                           d[constants.type],
                                           d[constants.content_length],
                                           d[constants.payload],
-                                          timeout)
+                                          timeout,
+                                          proxy=args.proxy)
             except ValueError as _:
                 print(result)
     except KeyboardInterrupt as e:
